@@ -247,7 +247,9 @@ login           = "LOGIN" SP userid SP password
 
 lsub            = "LSUB" SP mailbox SP list-mailbox
 
-mailbox         = "INBOX" / astring
+mailbox         = astring
+                ; Note(removed): "INBOX" special casing, it takes priority and
+                ; shortcircuits names like INBOX.SUBFOLDER.
                     ; INBOX is case-insensitive.  All case variants of
                     ; INBOX (e.g., "iNbOx") MUST be interpreted as INBOX
                     ; not as an astring.  An astring which consists of
