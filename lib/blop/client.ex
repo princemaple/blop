@@ -361,11 +361,31 @@ defmodule Blop.Client do
     Logger.debug("<<<\n#{message}")
 
     # TODO: improve this part with Stream or something
-    if Regex.match?(~r/^.*#{tag} .*\r\n$/s, message) do
+    if complete?(message, tag) do
       message
     else
       message <> assemble_msg(conn, tag)
     end
+  end
+
+  defp complete?(message, tag) do
+    tag_part = tag <> " "
+
+    :binary.matches(message, tag_part)
+    |> Enum.any?(fn {pos, len} ->
+      # Check if it's start of line
+      is_start = pos == 0 or :binary.at(message, pos - 1) == 10
+
+      if is_start do
+        # Check if line is terminated
+        match?(
+          {_, _},
+          :binary.match(message, "\r\n", scope: {pos + len, byte_size(message) - (pos + len)})
+        )
+      else
+        false
+      end
+    end)
   end
 
   defp imap_receive_raw(conn) do
