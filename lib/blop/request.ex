@@ -77,12 +77,8 @@ defmodule Blop.Request do
     s |> Enum.map(&sequence_set/1) |> Enum.join(",")
   end
 
-  def sequence_set(%Range{first: first, last: last, step: 1}) do
+  def sequence_set(%Range{first: first, last: last}) do
     "#{first}:#{last}"
-  end
-
-  def sequence_set(%Range{first: first, last: last, step: -1}) do
-    "#{last}:#{first}"
   end
 
   def sequence_set(%Range{} = r) do
