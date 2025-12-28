@@ -36,7 +36,7 @@ defmodule Blop.Request do
     create: [:name],
     delete: [:name],
     status: [:name],
-    append: [:name, :opts],
+    append: [:params],
     rename: [:name, :new_name],
     check: [],
     starttls: [],

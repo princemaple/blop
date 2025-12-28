@@ -198,6 +198,74 @@ defmodule Blop.Client do
   end
 
   @doc """
+  Append a message to a mailbox.
+  """
+  def append(client, mailbox, content, flags \\ [], datetime \\ nil) do
+    content =
+      if is_binary(content) do
+        content
+      else
+        Mail.render(content)
+      end
+
+    size = byte_size(content)
+
+    flags =
+      if Enum.empty?(flags) do
+        ""
+      else
+        "(" <> Enum.join(flags, " ") <> ") "
+      end
+
+    datetime =
+      if datetime do
+        # datetime should be formatted as "dd-Mon-yyyy hh:mm:ss +zzzz"
+        ~s("#{datetime}") <> " "
+      else
+        ""
+      end
+
+    params = "#{inspect(mailbox)} #{flags}#{datetime}{#{size}}"
+
+    with true <- Agent.get(client, & &1.logged_in) do
+      do_append(client, Request.append(params), content)
+    end
+  end
+
+  defp do_append(client_agent, %Request{} = req, content) do
+    client =
+      Agent.get_and_update(
+        client_agent,
+        &{&1, %{&1 | tag_number: &1.tag_number + 1}}
+      )
+
+    req = %{req | tag: "EX#{client.tag_number}"}
+
+    # 1. Send command
+    imap_send(client, req)
+
+    # 2. Receive continuation or error
+    case Socket.recv(client.conn) do
+      {:ok, "+" <> _} ->
+        # 3. Send content
+        imap_send_raw(client.conn, content <> "\r\n")
+
+        # 4. Receive final response
+        imap_receive(client, req)
+        |> Parser.response()
+        |> Response.extract()
+
+      {:ok, other} ->
+        # Could be an error or unexpected response
+        Logger.error("Unexpected response during APPEND: #{inspect(other)}")
+        {:error, other}
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
   Execute an IMAP command with the client.
   """
   def exec(client_agent, %Request{} = req) do
