@@ -167,5 +167,53 @@ defmodule Blop.ClientTest do
 
       assert {:ok, _} = Task.await(append_task)
     end
+
+    test "idle", %{client: client} do
+      Agent.update(client, fn state -> Map.put(state, :logged_in, true) end)
+
+      idle_task = Task.async(fn -> Client.idle(client) end)
+
+      # 1. Check IDLE sent
+      assert_receive {:server_received, cmd}
+      assert cmd =~ ~r/EX\d+ IDLE\r\n/
+      [tag, _] = String.split(cmd, " ", parts: 2)
+
+      # 2. Reply +
+      assert_receive {:server_get_reply, caller}
+      send(caller, {:socket_reply, "+ idling\r\n"})
+
+      # 3. Client calls recv again for update
+      assert_receive {:server_get_reply, caller}
+      # Send update
+      send(caller, {:socket_reply, "* 1 EXISTS\r\n"})
+
+      # 4. Check DONE sent
+      assert_receive {:server_received, done_cmd}
+      assert done_cmd == "DONE\r\n"
+
+      # 5. Client calls recv for final tag
+      assert_receive {:server_get_reply, caller}
+      send(caller, {:socket_reply, "#{tag} OK IDLE terminated\r\n"})
+
+      # 6. Verify return
+      result = Task.await(idle_task)
+
+      # The parser/response extraction should return {:ok, list_of_responses}
+      # Inspecting Response.ex:
+      # "EXISTS" n -> Map.put(acc, :exists, n) is done in CLIENT.SELECT.
+      # Response.extract returns: {:ok, Enum.map(parts, ...)}
+      # If part is: {:mailbox_data, [{:number, number}, "EXISTS"]}
+      # Response.extract_message_data handles structure.
+      # Let's check Response.ex for EXISTS handling.
+
+      # Response.ex:
+      # defp extract_message_data({:response_data, ["*", {:mailbox_data, [{:number, number}, property]}]}) do
+      #   {property, number}
+      # end
+      # So it returns {"EXISTS", 1}
+
+      assert {:ok, responses} = result
+      assert {"EXISTS", 1} in responses
+    end
   end
 end

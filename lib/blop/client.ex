@@ -276,6 +276,53 @@ defmodule Blop.Client do
   end
 
   @doc """
+  Enter IDLE state and wait for an update.
+  """
+  def idle(client) do
+    with true <- Agent.get(client, & &1.logged_in) do
+      do_idle(client)
+    end
+  end
+
+  defp do_idle(client_agent) do
+    client =
+      Agent.get_and_update(
+        client_agent,
+        &{&1, %{&1 | tag_number: &1.tag_number + 1}}
+      )
+
+    req = %Request{tag: "EX#{client.tag_number}", command: "IDLE", params: []}
+
+    # 1. Send IDLE
+    imap_send(client, req)
+
+    # 2. Receive continuation
+    case Socket.recv(client.conn) do
+      {:ok, "+" <> _} ->
+        # 3. Wait for update (blocking)
+        {:ok, update_data} = Socket.recv(client.conn)
+
+        # 4. Send DONE
+        imap_send_raw(client.conn, "DONE\r\n")
+
+        # 5. Receive final tagged response
+        tag_resp = imap_receive(client, req)
+
+        # 6. Combine and parse
+        (update_data <> tag_resp)
+        |> Parser.response()
+        |> Response.extract()
+
+      {:ok, other} ->
+        Logger.error("Unexpected response during IDLE: #{inspect(other)}")
+        {:error, other}
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
   Execute an IMAP command with the client.
   """
   def exec(client_agent, %Request{} = req) do

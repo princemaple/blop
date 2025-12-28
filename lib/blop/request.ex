@@ -46,7 +46,8 @@ defmodule Blop.Request do
     fetch: [:sequence, macro: "BODY.PEEK[]"],
     store: [:sequence, :item, :value],
     copy: [:sequence, :mailbox],
-    uid: [:params]
+    uid: [:params],
+    idle: []
   ]
 
   for {op, params} <- @ops do

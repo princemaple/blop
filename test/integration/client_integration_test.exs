@@ -84,4 +84,59 @@ defmodule Blop.ClientIntegrationTest do
     Client.list(client)
     assert %Blop.Mailbox{name: ^mailbox_name} = Client.select(client, mailbox_name)
   end
+
+  test "idle with concurrent append" do
+    mailbox_name = "idle_test_#{:os.system_time(:micro_seconds)}"
+
+    # Client A: The one that will IDLE
+    {:ok, client_a} =
+      Client.new(
+        host: @host,
+        port: @port,
+        socket_module: :gen_tcp,
+        gen_tcp: [:binary, active: false]
+      )
+
+    Client.login(client_a, "user_a", "pass")
+    Client.create(client_a, mailbox_name)
+    Client.select(client_a, mailbox_name)
+
+    # Start a task to append a message after a short delay
+    Task.start(fn ->
+      Process.sleep(50)
+
+      {:ok, client_b} =
+        Client.new(
+          host: @host,
+          port: @port,
+          socket_module: :gen_tcp,
+          gen_tcp: [:binary, active: false]
+        )
+
+      Client.login(client_b, "user_a", "pass")
+      Client.append(client_b, mailbox_name, "Subject: Trigger IDLE\r\n\r\nWake up!", [])
+    end)
+
+    # Client A enters IDLE state. It should return when Client B appends.
+    # Note: socket recv timeout might be an issue if it's too short, but default is usually infinity or long.
+    # IDLE returns {:ok, [{:exists, n}, ...]} or similar list of responses.
+    # Based on our implementation: Response.extract returns {:ok, list}
+    # and list items are like {:exists, n} or {:recent, n} or "IDLE terminated" tag response?
+    # Actually wait, Response.extract flattens things.
+    # Let's see what Client.idle returns.
+    # It returns Response.extract(...)
+
+    # We expect something like: {:ok, [{"EXISTS", 1}, ...]}
+    # Because do_idle receives the update_data and then the tag_resp.
+
+    assert {:ok, responses} = Client.idle(client_a)
+
+    # We expect at least one unsolicited response (EXISTS) and the command completion.
+    # The exact format depends on Response.ex
+    # Use generic assertion for now to see what we get if it fails, or iterate.
+    assert Enum.any?(responses, fn
+             {"EXISTS", _} -> true
+             _ -> false
+           end)
+  end
 end
