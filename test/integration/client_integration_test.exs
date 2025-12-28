@@ -97,9 +97,9 @@ defmodule Blop.ClientIntegrationTest do
         gen_tcp: [:binary, active: false]
       )
 
-    Client.login(client_a, "user_a", "pass")
-    Client.create(client_a, mailbox_name)
-    Client.select(client_a, mailbox_name)
+    assert :ok = Client.login(client_a, "user_a", "pass")
+    assert :ok = Client.create(client_a, mailbox_name)
+    assert %Blop.Mailbox{} = Client.select(client_a, mailbox_name)
 
     # Start a task to append a message after a short delay
     Task.start(fn ->
