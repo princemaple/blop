@@ -167,6 +167,16 @@ defmodule Blop.Client do
   end
 
   @doc """
+  Create a new mailbox.
+  """
+  def create(client, mailbox) do
+    with true <- Agent.get(client, & &1.logged_in),
+         {:ok, _resp} <- Client.exec(client, Request.create(inspect(mailbox))) do
+      :ok
+    end
+  end
+
+  @doc """
   Perform a FETCH command on the server to get a list of messages.
   """
   @spec fetch(pid()) :: [Mail.Message.t()]
