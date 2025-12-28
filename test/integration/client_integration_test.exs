@@ -77,5 +77,11 @@ defmodule Blop.ClientIntegrationTest do
     assert length(messages) >= 1
     # Check content if possible, but fetch returns Mail.Message structs.
     # We might need to inspect the struct.
+    # 6. Create a new mailbox
+    mailbox_name = "integration_test_create_#{:os.system_time(:micro_seconds)}"
+    assert :ok = Client.create(client, mailbox_name)
+    # Refresh mailboxes so select can find it
+    Client.list(client)
+    assert %Blop.Mailbox{name: ^mailbox_name} = Client.select(client, mailbox_name)
   end
 end
