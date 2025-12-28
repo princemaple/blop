@@ -99,6 +99,7 @@ defmodule Blop.ClientIntegrationTest do
 
     assert :ok = Client.login(client_a, "user_a", "pass")
     assert :ok = Client.create(client_a, mailbox_name)
+    Client.list(client_a)
     assert %Blop.Mailbox{} = Client.select(client_a, mailbox_name)
 
     # Start a task to append a message after a short delay
