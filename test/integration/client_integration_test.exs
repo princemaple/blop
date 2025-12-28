@@ -38,8 +38,6 @@ defmodule Blop.ClientIntegrationTest do
   end
 
   test "full lifecycle", %{client: client} do
-    mailbox = "INBOX.#{:os.system_time(:millisecond)}"
-
     # 1. Login
     assert :ok = Client.login(client, "test@example.com", "password")
     assert Client.info(client).logged_in
