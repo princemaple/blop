@@ -3,7 +3,7 @@ defmodule Blop.MockSocket do
 
   @doc """
   Connects to a mock server.
-  opts[:pid] can specify the PID of the mock server.
+  opts[:server_pid] can specify the PID of the mock server.
   """
   def connect(_host, _port, opts) do
     pid = Keyword.get(opts, :server_pid)
