@@ -140,4 +140,47 @@ defmodule Blop.ClientIntegrationTest do
              _ -> false
            end)
   end
+
+  test "mail message content parsing", %{client: client} do
+    # Login
+    assert :ok = Client.login(client, "test@example.com", "password")
+
+    # Create a test mailbox
+    mailbox_name = "mail_test_#{:os.system_time(:micro_seconds)}"
+    assert :ok = Client.create(client, mailbox_name)
+    Client.list(client)
+    assert %Blop.Mailbox{} = Client.select(client, mailbox_name)
+
+    # Build a message using the Mail library
+    message =
+      Mail.build_multipart()
+      |> Mail.put_from("sender@example.com")
+      |> Mail.put_to("recipient@example.com")
+      |> Mail.put_subject("Test Email with Headers")
+      |> Mail.put_text("""
+      This is a test email body.
+      It has multiple lines.
+      And should be parsed correctly.
+      """)
+
+    assert {:ok, _} = Client.append(client, mailbox_name, message, ["\\Seen"])
+
+    # Fetch the message
+    messages = Client.fetch(client, "1:*")
+    assert length(messages) == 1
+
+    # Verify the message is a Mail.Message struct
+    [message] = messages
+    assert %Mail.Message{} = message
+
+    # Verify message headers are parsed correctly
+    assert message.headers["subject"] == "Test Email with Headers"
+    assert message.headers["from"] == "sender@example.com"
+    assert message.headers["to"] == ["recipient@example.com"]
+
+    # Verify message body content
+    assert String.contains?(message.body, "This is a test email body")
+    assert String.contains?(message.body, "multiple lines.\n")
+    assert String.contains?(message.body, "parsed correctly")
+  end
 end
