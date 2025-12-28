@@ -5,16 +5,10 @@ defmodule Blop.ClientIntegrationTest do
   @moduletag :integration
 
   # Default GreenMail IMAP port from docker-compose
+  # Greenmail "-Dgreenmail.auth.disabled" means no auth check.
   @port 3143
   @host "localhost"
   @greenmail_api_port 8080
-
-  # GreenMail default credentials (or configured ones if different)
-  # GreenMail defaults: user: login, pass: login ??
-  # Actually greenmail/standalone often has login:login, or allows any.
-  # Let's try creating a user first or assuming default.
-  # docker-compose env: -Dgreenmail.auth.disabled -> so any user/pass works?
-  # Yes "-Dgreenmail.auth.disabled" means no auth check.
 
   setup_all do
     # Reset GreenMail to ensure clean state before running tests
@@ -33,16 +27,6 @@ defmodule Blop.ClientIntegrationTest do
   end
 
   setup do
-    # Ensure we use the real :ssl or :gen_tcp module
-    # The default in Client.new is :ssl.
-    # GreenMail unencrypted IMAP is on 3143.
-    # We should use :gen_tcp usually for non-SSL, but Client keys off :socket_module.
-    # Client defaults to :ssl.
-    # We can pass `socket_module: :gen_tcp`?
-    # Checking Client.new code:
-    # `socket_module = Map.get(opts, :socket_module, :ssl)`
-    # And then it uses that module to connect.
-
     {:ok, client} =
       Client.new(
         host: @host,
@@ -116,23 +100,7 @@ defmodule Blop.ClientIntegrationTest do
       Client.append(client_b, mailbox_name, "Subject: Trigger IDLE\r\n\r\nWake up!", [])
     end)
 
-    # Client A enters IDLE state. It should return when Client B appends.
-    # Note: socket recv timeout might be an issue if it's too short, but default is usually infinity or long.
-    # IDLE returns {:ok, [{:exists, n}, ...]} or similar list of responses.
-    # Based on our implementation: Response.extract returns {:ok, list}
-    # and list items are like {:exists, n} or {:recent, n} or "IDLE terminated" tag response?
-    # Actually wait, Response.extract flattens things.
-    # Let's see what Client.idle returns.
-    # It returns Response.extract(...)
-
-    # We expect something like: {:ok, [{"EXISTS", 1}, ...]}
-    # Because do_idle receives the update_data and then the tag_resp.
-
     assert {:ok, responses} = Client.idle(client_a)
-
-    # We expect at least one unsolicited response (EXISTS) and the command completion.
-    # The exact format depends on Response.ex
-    # Use generic assertion for now to see what we get if it fails, or iterate.
     assert Enum.any?(responses, fn
              {"EXISTS", _} -> true
              _ -> false
