@@ -26,13 +26,6 @@ alias Blop.Client
 )
 ```
 
-Create a mailbox and list them:
-
-```elixir
-Client.create(client, "New Mailbox")
-Client.list(client)
-```
-
 Append a message (using string or `Mail` struct):
 
 ```elixir
@@ -53,4 +46,11 @@ Select a mailbox and fetch messages:
 Client.select(client, "INBOX")
 
 Client.fetch(client, "1:5")
+```
+
+Create a mailbox and list them:
+
+```elixir
+Client.create(client, "New Mailbox")
+Client.list(client)
 ```
