@@ -7,6 +7,7 @@ defmodule Blop.ClientIntegrationTest do
   # Default GreenMail IMAP port from docker-compose
   @port 3143
   @host "localhost"
+  @greenmail_api_port 8080
 
   # GreenMail default credentials (or configured ones if different)
   # GreenMail defaults: user: login, pass: login ??
@@ -14,6 +15,22 @@ defmodule Blop.ClientIntegrationTest do
   # Let's try creating a user first or assuming default.
   # docker-compose env: -Dgreenmail.auth.disabled -> so any user/pass works?
   # Yes "-Dgreenmail.auth.disabled" means no auth check.
+
+  setup_all do
+    # Reset GreenMail to ensure clean state before running tests
+    require Logger
+    url = "http://#{@host}:#{@greenmail_api_port}/api/mail/purge"
+
+    case Req.post(url) do
+      {:ok, %{status: status}} ->
+        Logger.info("GreenMail purge successful: #{status}")
+
+      {:error, reason} ->
+        Logger.warning("GreenMail purge failed: #{inspect(reason)}")
+    end
+
+    :ok
+  end
 
   setup do
     # Ensure we use the real :ssl or :gen_tcp module
@@ -42,51 +59,32 @@ defmodule Blop.ClientIntegrationTest do
     assert :ok = Client.login(client, "test@example.com", "password")
     assert Client.info(client).logged_in
 
-    # Create mailbox since we are using a custom one (if CREATE is needed?)
-    # Request.create exists. Do we have Client.create?
-    # We might need to implement Client.create or use INBOX and hope we can clear it?
-    # Or just ignore previous messages?
-    # If we fetch 1:*, we get all.
-    # If we Append, we get a UID or sequence number.
-    # GreenMail auto-creates folder on APPEND? Usually invalid.
-    # We need Client.create.
-
-    # Let's check Client.create presence.
-    # It is NOT in client.ex (based on my memory of reading it).
-    # request.ex has it.
-
-    # Alternative: Restart docker container.
     # 2. List (should include INBOX)
     mailboxes = Client.list(client)
     assert Enum.any?(mailboxes, fn m -> m.name == "INBOX" end)
 
-    # 3. Append a message
-    # {12}
-    # Body Content
+    # 3. Create a test mailbox for isolation
+    test_mailbox = "LifecycleTest"
+    assert :ok = Client.create(client, test_mailbox)
+    Client.list(client)
+
+    # 4. Append a message to the test mailbox
     assert {:ok, _} =
-             Client.append(client, "INBOX", "Subject: Test\r\n\r\nHello World!", ["\\Seen"])
+             Client.append(client, test_mailbox, "Subject: Test\r\n\r\nHello World!", ["\\Seen"])
 
-    # 4. Select INBOX and verify exists
-    assert %Blop.Mailbox{name: "INBOX"} = Client.select(client, "INBOX")
-    # We expect at least 1 message now
-    assert Client.info(client, :selected_mailbox).exists >= 1
+    # 5. Select the test mailbox and verify exists
+    assert %Blop.Mailbox{name: ^test_mailbox} = Client.select(client, test_mailbox)
+    # We expect exactly 1 message now
+    assert Client.info(client, :selected_mailbox).exists == 1
 
-    # 5. Fetch the message
+    # 6. Fetch the message
     # Sequence request 1:*
     messages = Client.fetch(client, "1:*")
-    assert length(messages) >= 1
-    # Check content if possible, but fetch returns Mail.Message structs.
-    # We might need to inspect the struct.
-    # 6. Create a new mailbox
-    mailbox_name = "integration_test_create_#{:os.system_time(:micro_seconds)}"
-    assert :ok = Client.create(client, mailbox_name)
-    # Refresh mailboxes so select can find it
-    Client.list(client)
-    assert %Blop.Mailbox{name: ^mailbox_name} = Client.select(client, mailbox_name)
+    assert length(messages) == 1
   end
 
   test "idle with concurrent append" do
-    mailbox_name = "idle_test_#{:os.system_time(:micro_seconds)}"
+    mailbox_name = "IdleTest"
 
     # Client A: The one that will IDLE
     {:ok, client_a} =
@@ -141,12 +139,12 @@ defmodule Blop.ClientIntegrationTest do
            end)
   end
 
-  test "mail message content parsing", %{client: client} do
+  test "mail message", %{client: client} do
     # Login
     assert :ok = Client.login(client, "test@example.com", "password")
 
     # Create a test mailbox
-    mailbox_name = "mail_test_#{:os.system_time(:micro_seconds)}"
+    mailbox_name = "MailTest"
     assert :ok = Client.create(client, mailbox_name)
     Client.list(client)
     assert %Blop.Mailbox{} = Client.select(client, mailbox_name)
