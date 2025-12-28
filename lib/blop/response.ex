@@ -30,6 +30,21 @@ defmodule Blop.Response do
     {:flags, Enum.reject(flags, &is_binary/1)}
   end
 
+  # For LIST response with empty flags
+  defp extract_message_data(
+         {:response_data,
+          [
+            "*",
+            {:mailbox_data,
+             [
+               "LIST",
+               {:mailbox_list, ["(", ")", delimiter, {:mailbox, name}]}
+             ]}
+          ]}
+       ) do
+    {:mailbox, name, delimiter, []}
+  end
+
   # For LIST response
   defp extract_message_data(
          {:response_data,
@@ -84,6 +99,11 @@ defmodule Blop.Response do
        )
        when rejection in ["NO", "BAD"] do
     throw({:error, {rejection, error}})
+  end
+
+  defp extract_message_data(other) do
+    IO.inspect(other, label: "UNMATCHED RESPONSE DATA")
+    other
   end
 
   defp extract_msg_att(["RFC822", ".HEADER", {:literal, [_number, body]}]) do

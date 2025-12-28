@@ -62,74 +62,110 @@ defmodule Blop.ClientTest do
     end
   end
 
-  test "append sends correct commands" do
-    {:ok, server_pid} = start_server()
+  describe "commands" do
+    setup do
+      {:ok, server_pid} = start_server()
 
-    # Start Client
-    # Client init will loop receiving capability.
-    # We must be ready to provide it.
+      task =
+        Task.async(fn ->
+          Client.new(
+            host: "test",
+            socket_module: Blop.MockSocket,
+            "Elixir.Blop.MockSocket": [server_pid: server_pid]
+          )
+        end)
 
-    # Need to handle the init sequence asynchronously or ensure Client doesn't block forever.
-    # Client.new -> Agent.start_link -> init -> imap_receive_raw -> Socket.recv.
+      assert_receive {:server_get_reply, caller}
+      send(caller, {:socket_reply, "* OK [CAPABILITY IMAP4rev1] MockServer ready\r\n"})
 
-    # We start start_server which forwards requests to us.
+      {:ok, client} = Task.await(task)
+      {:ok, client: client, server_pid: server_pid}
+    end
 
-    # Start Client in a Task so we can handle the interaction?
-    task =
-      Task.async(fn ->
-        Client.new(
-          host: "test",
-          socket_module: Blop.MockSocket,
-          "Elixir.Blop.MockSocket": [server_pid: server_pid]
-        )
+    test "login", %{client: client} do
+      login_task = Task.async(fn -> Client.login(client, "user", "pass") end)
+
+      assert_receive {:server_received, cmd}
+      assert cmd =~ ~r/EX\d+ LOGIN user pass\r\n/
+      [tag, _] = String.split(cmd, " ", parts: 2)
+
+      assert_receive {:server_get_reply, caller}
+      send(caller, {:socket_reply, "#{tag} OK LOGIN completed\r\n"})
+
+      assert :ok = Task.await(login_task)
+      assert Client.info(client).logged_in
+    end
+
+    test "list", %{client: client} do
+      # Mock login state
+      Agent.update(client, fn state -> Map.put(state, :logged_in, true) end)
+
+      list_task = Task.async(fn -> Client.list(client) end)
+
+      assert_receive {:server_received, cmd}
+      assert cmd =~ ~r/EX\d+ LIST "" \*\r\n/
+      [tag, _] = String.split(cmd, " ", parts: 2)
+
+      assert_receive {:server_get_reply, caller}
+
+      send(
+        caller,
+        {:socket_reply,
+         "* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n#{tag} OK LIST completed\r\n"}
+      )
+
+      result = Task.await(list_task)
+      assert [%Blop.Mailbox{name: "INBOX"}] = result
+    end
+
+    test "select", %{client: client} do
+      Agent.update(client, fn state ->
+        state
+        |> Map.put(:logged_in, true)
+        |> Map.put(:mailboxes, [%Blop.Mailbox{name: "INBOX"}])
       end)
 
-    # 1. Expect capability request (init)
-    assert_receive {:server_get_reply, caller}
-    send(caller, {:socket_reply, "* OK [CAPABILITY IMAP4rev1] MockServer ready\r\n"})
+      select_task = Task.async(fn -> Client.select(client, "INBOX") end)
 
-    {:ok, client} = Task.await(task)
+      assert_receive {:server_received, cmd}
+      assert cmd =~ ~r/EX\d+ SELECT "INBOX"\r\n/
+      [tag, _] = String.split(cmd, " ", parts: 2)
 
-    # Hack: set logged_in to true since we didn't do login
-    Agent.update(client, fn state -> Map.put(state, :logged_in, true) end)
+      assert_receive {:server_get_reply, caller}
 
-    # 2. Call Append
-    # Client.append(client, "INBOX", "Body Content", [:Seen], "25-Dec-2025 10:00:00 +0000")
-    # This runs in test process.
-    # It calls do_append -> send -> recv -> send -> recv.
+      send(
+        caller,
+        {:socket_reply,
+         "* 172 EXISTS\r\n* 1 RECENT\r\n#{tag} OK [READ-WRITE] SELECT completed\r\n"}
+      )
 
-    append_task =
-      Task.async(fn ->
-        Client.append(client, "INBOX", "Body Content", ["\\Seen"], "25-Dec-2025 10:00:00 +0000")
-      end)
+      result = Task.await(select_task)
+      assert %Blop.Mailbox{name: "INBOX", exists: 172, recent: 1} = result
+      assert Client.info(client, :selected_mailbox).name == "INBOX"
+    end
 
-    # 3. Expect Command
-    assert_receive {:server_received, cmd}
-    # "EX2 APPEND \"INBOX\" (\\Seen) \"25-Dec-2025 10:00:00 +0000\" {12}\r\n"
-    # Note: Tag is EX2 because EX1 was capability? No, capability was untagged receive.
-    # Client tag starts at 1. `exec` increments.
-    # `do_append` increments.
-    # Wait, `client.tag_number` starts at 1. `do_append` uses `tag_number + 1` -> 2.
-    assert cmd =~ ~r/EX\d+ APPEND "INBOX" \(\\Seen\) "25-Dec-2025 10:00:00 \+0000" \{12\}\r\n/
-    [tag, _] = String.split(cmd, " ", parts: 2)
+    test "append", %{client: client} do
+      Agent.update(client, fn state -> Map.put(state, :logged_in, true) end)
 
-    # 4. Client waits for continuation.
-    assert_receive {:server_get_reply, caller}
-    send(caller, {:socket_reply, "+ go ahead\r\n"})
+      append_task =
+        Task.async(fn ->
+          Client.append(client, "INBOX", "Body Content", ["\\Seen"], "25-Dec-2025 10:00:00 +0000")
+        end)
 
-    # 5. Expect Content
-    assert_receive {:server_received, content}
-    assert content == "Body Content\r\n"
+      assert_receive {:server_received, cmd}
+      assert cmd =~ ~r/EX\d+ APPEND "INBOX" \(\\Seen\) "25-Dec-2025 10:00:00 \+0000" \{12\}\r\n/
+      [tag, _] = String.split(cmd, " ", parts: 2)
 
-    # 6. Client waits for final response
-    assert_receive {:server_get_reply, caller}
-    send(caller, {:socket_reply, "#{tag} OK APPEND completed\r\n"})
+      assert_receive {:server_get_reply, caller}
+      send(caller, {:socket_reply, "+ go ahead\r\n"})
 
-    # 7. Await result
-    result = Task.await(append_task)
-    assert {:ok, _} = result
+      assert_receive {:server_received, content}
+      assert content == "Body Content\r\n"
 
-    # Verify parsing if possible, Client.append returns Response.extract() which might be :ok or list.
-    # Response.extract usually returns {:ok, ...} or error.
+      assert_receive {:server_get_reply, caller}
+      send(caller, {:socket_reply, "#{tag} OK APPEND completed\r\n"})
+
+      assert {:ok, _} = Task.await(append_task)
+    end
   end
 end
