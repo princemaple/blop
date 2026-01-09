@@ -145,8 +145,10 @@ defmodule Blop.ClientIntegrationTest do
     assert message.headers["to"] == ["recipient@example.com"]
 
     # Verify message body content
-    assert String.contains?(message.body, "This is a test email body")
-    assert String.contains?(message.body, "multiple lines.\n")
-    assert String.contains?(message.body, "parsed correctly")
+    # For multipart messages, the body is in the parts, not directly in message.body
+    body_text = Mail.get_text(message)
+    assert String.contains?(body_text, "This is a test email body")
+    assert String.contains?(body_text, "multiple lines.\n")
+    assert String.contains?(body_text, "parsed correctly")
   end
 end
