@@ -146,7 +146,9 @@ defmodule Blop.ClientIntegrationTest do
 
     # Verify message body content
     # For multipart messages, the body is in the parts, not directly in message.body
-    body_text = Mail.get_text(message)
+    # Mail.get_text returns a Mail.Message representing the text/plain part
+    text_part = Mail.get_text(message)
+    body_text = text_part.body
     assert String.contains?(body_text, "This is a test email body")
     assert String.contains?(body_text, "multiple lines.\n")
     assert String.contains?(body_text, "parsed correctly")
